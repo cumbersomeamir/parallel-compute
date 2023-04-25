@@ -50,16 +50,14 @@ class PPO:
                 custom_loss = policy_loss + value_loss
 
                 # Enable gradient computation and calculate gradients
-                #with torch.enable_grad():
-                    #custom_loss.backward()
+                with torch.enable_grad():
+                    custom_loss.backward()
 
-                # Update the model parameters without the optimizer
+                # Update the model parameters with the optimizer
+                self.optimizer.step()
 
-                for param in self.model.parameters():
-                    if param.grad is not None:
-                        param -= self.learning_rate * param.grad
-                        # Manually zero gradients
-                        param.grad.zero_()
+                # Manually zero gradients
+                self.optimizer.zero_grad()
 
     def act(self, state):
         with torch.no_grad():
@@ -81,13 +79,15 @@ class PPO:
             attention_mask = torch.ones_like(input_ids["input_ids"]).to(self.device)
             outputs = self.model(input_ids=input_ids["input_ids"], attention_mask=attention_mask)
             logits = outputs.logits[:, -1, :]
-            values = torch.tensor([0.0] * len(states))  # We do not use values in this example
+            values = torch.tensor([0.0] * len(states))
+
+            
+             # We do not use values in this example
             action_probs = torch.softmax(logits, dim=-1)
             dist = Categorical(action_probs)
             log_probs = dist.log_prob(torch.tensor(actions).to(self.device))
 
         return log_probs, values
-
 def create_dataset(model, tokenizer, prompts1, completions1, device) -> Tuple:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # A very simple dataset to simulate human feedback
@@ -154,6 +154,12 @@ def main():
 
     base_model = "chavinlo/gpt4-x-alpaca"
     model = AutoModelForCausalLM.from_pretrained("chavinlo/gpt4-x-alpaca")
+
+    # Check if there are multiple GPUs
+    if torch.cuda.device_count() > 1:
+        print("Using", torch.cuda.device_count(), "GPUs")
+        model = torch.nn.DataParallel(model)
+
     model.to(PPO.device)  # Move the model to the specified device
 
     # Set requires_grad=True for all parameters in the model
@@ -168,7 +174,7 @@ def main():
 
     # Evaluation data
     input_sentences = [
-        "Now she in that Uber with a sad face",
+                "Now she in that Uber with a sad face",
         "She was all the way from the north side",
     ]
     expected_output_sentences = [
@@ -203,3 +209,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
